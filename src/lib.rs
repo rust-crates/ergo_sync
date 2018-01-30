@@ -1,8 +1,76 @@
+//! ergo_sync: making creating and synchronizing threads ergonomic, therefore fun!
+//!
+//! This is the synchronization library as part of the `ergo` crates ecosystem. It contains useful
+//! types, traits and functions for spawning threads and synchronizing them. It is named `sync`
+//! because of `std::sync` and because it is _not_ async, which is a spearate part of the
+//! ergo ecocystem.
+//!
+//!
+//! The crates that are wraped/exported are:
+//!
+//! - [`rayon`](https://github.com/rayon-rs/rayon): Rayon: A data parallelism library for Rust
+//! - [`chan`](https://github.com/BurntSushi/chan): Multi-producer, multi-consumer concurrent
+//!   channel for Rust.
+//!
+//! Consider supporting their development individually and starring them on github.
+//!
+//! # Examples
+//!
+//! Here is an example of all of the features together:
+//!
+//! ```rust
+//! #[macro_use] extern crate ergo_sync;
+//! use ergo_sync::*;
+//! use ergo_sync::rayon::prelude::*;
+//! use std_prelude::*;
+//!
+//! # fn main() {
+//!  // rendezvous channel
+//! let (send, recv) = chan::sync(0);
+//!
+//! // The consumer must be spawned in a thread or we risk deadlock.
+//! // Do NOT put the consumer in the threadpool, as threadpools
+//! // do not guarantee >1 threads running at a time.
+//! let consumer = spawn(move|| -> u64 {
+//!     let recv = recv;
+//!     recv.iter().sum()
+//! });
+//!
+//! // spawn and join N number threads
+//! join_pool!{
+//!     {
+//!         // Use "regular" functions that might have to do a lot of work.
+//!         let s = send.clone();
+//!         // do some expensive function
+//!         s.send(42_u64.pow(4));
+//!     },
+//!     {
+//!         // Each function can also use rayon's traits to do iteration in parallel.
+//!         let s = send.clone();
+//!         (0..1000_u64).into_par_iter().for_each(|n| {
+//!             s.send(n * 42);
+//!         });
+//!     }
+//! };
+//!
+//! drop(send); // the channel must be dropped for iterator to stop.
+//! assert_eq!(24_090_696, consumer.finish());
+//! # }
+//! ```
 pub extern crate chan;
 pub extern crate rayon;
 pub extern crate std_prelude;
 
+pub use chan::{
+    Sender, Receiver,
+    after, after_ms,
+    tick, tick_ms
+};
+
 pub use std_prelude::{
+    // Traits
+    FromIterator,
+
     // Types
     Arc,
     Mutex,
@@ -20,6 +88,7 @@ pub use std_prelude::{
     // Functions
     sleep, spawn
 };
+pub use rayon::prelude::*;
 
 
 /// Convinience trait like `std::thread::JoinHandle` to avoid having to use
@@ -63,7 +132,7 @@ impl<T: Send + 'static> FinishHandle<T> for ::std::thread::JoinHandle<T> {
 ///
 /// // The consumer must be spawned in a thread or we risk deadlock
 /// // Do NOT put the consumer in the threadpool, as it does not
-/// // guarantee >1 thread running at a time.
+/// // guarantee >1 threads running at a time.
 /// let consumer = spawn(move|| {
 ///     let recv = recv;
 ///     recv.iter().sum()
